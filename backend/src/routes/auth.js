@@ -17,4 +17,9 @@ router.post("/refresh", authController.requestRefreshToken);
 // Logout user
 router.post("/logout", middlewareController.verifyToken, authController.logoutUser);
 
+// Request password reset
+router.post("/request-reset",authController.requestPasswordReset);
+
+//Reset password
+router.post("/reset-password/:token", authController.resetPassword);
 module.exports = router;

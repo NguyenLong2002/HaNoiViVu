@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const bcrypt = require("bcrypt");
+const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { sendMail } = require("../utils/sendEmail");
 require('dotenv').config(); // Load biến môi trường từ tệp .env
@@ -163,7 +164,67 @@ const authController = {
         res.clearCookie("refreshToken");
         refreshTokens = refreshTokens.filter((token) => token !== req.cookies.refreshToken);
         res.status(200).json("Logged out!");
-    }
+    },
+
+    //yêu cầu đặt lại mật khẩu
+    requestPasswordReset: async(req, res) =>{
+        try {
+            const user = await User.findOne({ email: req.body.email });
+            if (!user) {
+                return res.status(404).json({ message: 'Email not found' });
+            }
+
+            const resetToken = crypto.randomBytes(32).toString('hex');
+            const hash = await bcrypt.hash(resetToken, 10);
+
+            user.resetPasswordToken = hash;
+            user.resetPasswordExpire = Date.now() + 3600000; // Token valid for 30 minutes
+            await user.save();
+
+            // Send email
+            const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+            const message = 
+            `<h1>Bạn đã yêu cầu đặt lại mật khẩu</h1>
+            <p>Vui lòng truy cập liên kết này để đặt lại mật khẩu của bạn</p>
+            <a href=${resetUrl} clicktracking=off>${resetUrl}</a>
+            <p>Liên kết này chỉ có hiệu lực trong 1 giờ.</p>`;
+
+            await sendMail(user.email, 'Yêu cầu đặt lại mật khẩu', message);
+            res.status(200).json({ message: 'Email sent' });
+        } catch (err) {
+            console.error('Password reset request error:', err);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+    // Đặt lại mật khẩu
+     resetPassword: async (req, res) => {
+        try {
+            const resetToken = req.params.token;
+            const user = await User.findOne({
+                resetPasswordExpire: { $gt: Date.now() },
+            });
+
+            if (!user) {
+                return res.status(400).json({ message: 'Invalid or expired token' });
+            }
+
+            const validToken = await bcrypt.compare(resetToken, user.resetPasswordToken);
+            if (!validToken) {
+                return res.status(400).json({ message: 'Invalid or expired token' });
+            }
+
+            user.password = await bcrypt.hash(req.body.password, 10);
+            user.resetPasswordToken = undefined;
+            user.resetPasswordExpire = undefined;
+            await user.save();
+
+            res.status(200).json({ message: 'Password reset successful' });
+            
+        } catch (err) {
+            console.error('Password reset error:', err);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
 };
 
 module.exports = authController;
